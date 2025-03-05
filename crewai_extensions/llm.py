@@ -541,4 +541,3 @@ if hasattr(litellm, 'log_raw_request_response'):
 
 
     litellm.log_raw_request_response = wrapped_log_request_response
-`
