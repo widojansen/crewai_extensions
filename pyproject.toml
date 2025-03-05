@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crewai-extensions"
+version = "0.1.0"
+description = "Extensions for CrewAI with enhanced LLM functionality"
+readme = "README.md"
+authors = [{name = "Wido Jansen", email = "widojansen@gmail.com"}]
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "crewai",
+    "litellm",
+    "pydantic",
+    "python-dotenv",
+]
+requires-python = ">=3.8"
+
+[project.urls]
+"Homepage" = "https://github.com/widojansen/crewai-extensions"
+"Bug Tracker" = "https://github.com/widojansen/crewai-extensions/issues"
