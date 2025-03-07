@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crewai-extensions"
-version = "0.1.0"
+version = "0.1.1"
 description = "Extensions for CrewAI with enhanced LLM functionality"
 readme = "README.md"
 authors = [{name = "Wido Jansen", email = "widojansen@gmail.com"}]
