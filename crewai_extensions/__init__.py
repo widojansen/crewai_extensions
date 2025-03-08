@@ -8,5 +8,5 @@ from .agent_extensions import ExtendedAgent, create_agent
 from .task_extensions import ExtendedTask, create_task
 from .crew_extensions import CrewWithLogging, kickoff_with_logging
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 

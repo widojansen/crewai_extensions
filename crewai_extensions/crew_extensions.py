@@ -22,12 +22,12 @@ except ImportError:
 
 # Import our extended classes
 try:
-    from agent_extension import ExtendedAgent, create_agent
+    from agent_extensions import ExtendedAgent, create_agent
 except ImportError:
     try:
-        from .agent_extension import ExtendedAgent, create_agent
+        from .agent_extensions import ExtendedAgent, create_agent
     except ImportError:
-        print("WARNING: Could not import agent_extension")
+        print("WARNING: Could not import agent_extensions")
 
 
         # Create dummy functions if import fails
@@ -41,12 +41,12 @@ except ImportError:
             pass
 
 try:
-    from task_extension import ExtendedTask, create_task
+    from task_extensions import ExtendedTask, create_task
 except ImportError:
     try:
-        from .task_extension import ExtendedTask, create_task
+        from .task_extensions import ExtendedTask, create_task
     except ImportError:
-        print("WARNING: Could not import task_extension")
+        print("WARNING: Could not import task_extensions")
 
 
         # Create dummy functions if import fails
