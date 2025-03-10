@@ -2,7 +2,6 @@
 Updated LLM wrapper module to make crewai_extensions compatible with CrewAI internals.
 """
 
-import json
 import logging
 from typing import Any, Dict, List, Optional, Union
 
