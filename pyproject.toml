@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "crewai-extensions"
-version = "0.2.0"
+version = "0.3.0"
 description = "Extensions for CrewAI with enhanced LLM functionality"
 readme = "README.md"
 authors = [{name = "Wido Jansen", email = "widojansen@gmail.com"}]
@@ -19,7 +19,8 @@ dependencies = [
     "litellm",
     "pydantic",
     "python-dotenv",
-    "langchain"
+    "langchain",
+    "streamlit"
 ]
 requires-python = ">=3.8"
 

@@ -10,6 +10,7 @@ from crewai_extensions.logging_utils import (
     debug_trace, set_streamlit_queue
 )
 from crewai_extensions.llm_logging import LLMLoggingHandler
+from crewai_extensions.streamlit_ui import CrewAIStreamlitUI, launch_streamlit_ui
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
