@@ -13,6 +13,7 @@ import warnings
 import logging
 import sys
 import psutil
+import yaml
 
 
 class CrewAIStreamlitUI:
@@ -34,6 +35,9 @@ class CrewAIStreamlitUI:
             input_field_help="Enter the topic for processing",
             output_dir="output",
             logs_dir="logs",
+            config_dir="config",
+            agents_config_file="agents.yaml",
+            tasks_config_file="tasks.yaml",
             output_file_extension="md",
             main_module_path=None,
             process_action="run",
@@ -42,6 +46,8 @@ class CrewAIStreamlitUI:
             show_log_tab=True,
             show_output_tab=True,
             show_files_tab=True,
+            show_agents_tab=True,
+            show_tasks_tab=True,
             max_monitor_time=1800,  # 30 minutes timeout for subprocess
             topic_clean_func=None
     ):
@@ -58,6 +64,9 @@ class CrewAIStreamlitUI:
             input_field_help (str): Help text for the input field
             output_dir (str): Directory where output files are stored
             logs_dir (str): Directory where log files are stored
+            config_dir (str): Directory where configuration files are stored
+            agents_config_file (str): Filename for agents configuration
+            tasks_config_file (str): Filename for tasks configuration
             output_file_extension (str): File extension for output files (without dot)
             main_module_path (str): Path to the main.py module to execute
             process_action (str): Action parameter for the subprocess command (e.g., "run")
@@ -66,6 +75,8 @@ class CrewAIStreamlitUI:
             show_log_tab (bool): Whether to show the log tab
             show_output_tab (bool): Whether to show the output preview tab
             show_files_tab (bool): Whether to show the files tab
+            show_agents_tab (bool): Whether to show the agents configuration tab
+            show_tasks_tab (bool): Whether to show the tasks configuration tab
             max_monitor_time (int): Maximum time to monitor a process before timeout
             topic_clean_func (callable): Optional function to clean the topic value
         """
@@ -82,6 +93,9 @@ class CrewAIStreamlitUI:
         self.input_field_help = input_field_help
         self.output_dir = output_dir
         self.logs_dir = logs_dir
+        self.config_dir = config_dir
+        self.agents_config_file = agents_config_file
+        self.tasks_config_file = tasks_config_file
         self.output_file_extension = output_file_extension
         self.main_module_path = main_module_path
         self.process_action = process_action
@@ -90,8 +104,14 @@ class CrewAIStreamlitUI:
         self.show_log_tab = show_log_tab
         self.show_output_tab = show_output_tab
         self.show_files_tab = show_files_tab
+        self.show_agents_tab = show_agents_tab
+        self.show_tasks_tab = show_tasks_tab
         self.max_monitor_time = max_monitor_time
         self.topic_clean_func = topic_clean_func or self._default_topic_clean
+
+        # Config file paths
+        self.agents_config_path = os.path.join(self.config_dir, self.agents_config_file)
+        self.tasks_config_path = os.path.join(self.config_dir, self.tasks_config_file)
 
         # Initialize the log queue for thread-safe logging
         self.log_queue = queue.Queue()
@@ -104,6 +124,7 @@ class CrewAIStreamlitUI:
         project_root = self.get_project_root()
         os.makedirs(os.path.join(project_root, self.logs_dir), exist_ok=True)
         os.makedirs(os.path.join(project_root, self.output_dir), exist_ok=True)
+        os.makedirs(os.path.join(project_root, self.config_dir), exist_ok=True)
 
     def get_project_root(self):
         """Find the project root directory from the current directory."""
@@ -133,6 +154,14 @@ class CrewAIStreamlitUI:
             st.session_state.show_completion_notification = False
         if 'needs_final_refresh' not in st.session_state:
             st.session_state.needs_final_refresh = False
+        if 'agents_yaml' not in st.session_state:
+            st.session_state.agents_yaml = ""
+        if 'tasks_yaml' not in st.session_state:
+            st.session_state.tasks_yaml = ""
+        if 'agents_yaml_edited' not in st.session_state:
+            st.session_state.agents_yaml_edited = False
+        if 'tasks_yaml_edited' not in st.session_state:
+            st.session_state.tasks_yaml_edited = False
 
     def _silence_warnings(self):
         """Suppress unnecessary warnings."""
@@ -179,12 +208,12 @@ class CrewAIStreamlitUI:
 
         # Check if main.py is in src/<project_name>
         for src_dir in ["src", "source", "app"]:
-            for subdir in os.listdir(os.path.join(project_root, src_dir)) if os.path.exists(
-                    os.path.join(project_root, src_dir)) else []:
-                src_path = os.path.join(project_root, src_dir, subdir, "main.py")
-                if os.path.exists(src_path):
-                    self.add_log_message(f"Found main.py in {src_dir}/{subdir}\n")
-                    return src_path, project_root
+            if os.path.exists(os.path.join(project_root, src_dir)):
+                for subdir in os.listdir(os.path.join(project_root, src_dir)):
+                    src_path = os.path.join(project_root, src_dir, subdir, "main.py")
+                    if os.path.exists(src_path):
+                        self.add_log_message(f"Found main.py in {src_dir}/{subdir}\n")
+                        return src_path, project_root
 
         # If not found anywhere, return None
         return None, project_root
@@ -225,7 +254,8 @@ class CrewAIStreamlitUI:
             for src_dir in ["src", "source", "app"]:
                 if os.path.exists(os.path.join(work_dir, src_dir, "__init__.py")):
                     for subdir in os.listdir(os.path.join(work_dir, src_dir)):
-                        if os.path.exists(os.path.join(work_dir, src_dir, subdir, "__init__.py")):
+                        subdir_path = os.path.join(work_dir, src_dir, subdir)
+                        if os.path.isdir(subdir_path) and os.path.exists(os.path.join(subdir_path, "__init__.py")):
                             self.add_log_message(f"Found {src_dir}.{subdir} package structure\n")
                             work_dir = work_dir
                             main_py_path = f"{src_dir}.{subdir}.main"
@@ -915,6 +945,292 @@ class CrewAIStreamlitUI:
         # Set flag to show notification in next UI refresh
         st.session_state.show_completion_notification = True
 
+    # YAML Configuration File Handling
+
+    def _load_yaml_file(self, file_path):
+        """Load a YAML file and return its content."""
+        try:
+            if os.path.exists(file_path):
+                with open(file_path, 'r') as file:
+                    content = yaml.safe_load(file)
+                    return content, None
+            else:
+                return {}, f"File not found: {file_path}"
+        except Exception as e:
+            return {}, f"Error loading YAML file: {str(e)}"
+
+    def _save_yaml_file(self, file_path, content):
+        """Save content to a YAML file."""
+        try:
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+            # If content is a string, try to parse it as YAML first
+            if isinstance(content, str):
+                try:
+                    yaml_content = yaml.safe_load(content)
+                    # If parsing succeeded, write the structured data
+                    with open(file_path, 'w') as file:
+                        yaml.dump(yaml_content, file, default_flow_style=False, sort_keys=False)
+                    return True, None
+                except Exception as yaml_error:
+                    return False, f"Error parsing YAML content: {str(yaml_error)}"
+            else:
+                # If content is already a Python object, dump it directly
+                with open(file_path, 'w') as file:
+                    yaml.dump(content, file, default_flow_style=False, sort_keys=False)
+                return True, None
+        except Exception as e:
+            return False, f"Error saving YAML file: {str(e)}"
+
+    def _load_yaml_to_string(self, file_path):
+        """Load a YAML file and return its content as a string."""
+        try:
+            if os.path.exists(file_path):
+                with open(file_path, 'r') as file:
+                    return file.read(), None
+            else:
+                return "", f"File not found: {file_path}"
+        except Exception as e:
+            return "", f"Error loading YAML file: {str(e)}"
+
+    def _validate_yaml(self, yaml_str):
+        """Validate YAML string to ensure it's properly formatted."""
+        try:
+            yaml.safe_load(yaml_str)
+            return True, None
+        except Exception as e:
+            return False, f"Invalid YAML: {str(e)}"
+
+    def _create_agents_tab(self, tab):
+        """Create the agents configuration tab."""
+        tab.subheader("🤖 Agent Configuration")
+
+        # Load agents configuration if not already loaded
+        if not st.session_state.agents_yaml:
+            agents_yaml, error = self._load_yaml_to_string(self.agents_config_path)
+            if error:
+                tab.warning(error)
+                # Create a default template if file doesn't exist
+                agents_yaml = """# Agent Configuration
+# Define your CrewAI agents here
+
+planner:
+  role: "Planning Agent"
+  goal: "Create a detailed structure for the blog post with sections and content focus."
+  backstory: "You are an expert content strategist with years of experience structuring high-quality blog posts."
+  verbose: true
+  allow_delegation: false
+
+writer:
+  role: "Writing Agent"
+  goal: "Write high-quality, engaging blog content following the provided structure."
+  backstory: "You are a talented writer with expertise in creating engaging and informative content."
+  verbose: true
+  allow_delegation: false
+
+editor:
+  role: "Editing Agent"
+  goal: "Review and polish the blog content for clarity, accuracy, and engagement."
+  backstory: "You are a meticulous editor with an eye for detail and a passion for quality content."
+  verbose: true
+  allow_delegation: false
+"""
+            st.session_state.agents_yaml = agents_yaml
+
+        # Show file path
+        tab.caption(f"Configuration file: {self.agents_config_path}")
+
+        # Add a hint about YAML format
+        with tab.expander("YAML Format Guidelines", expanded=False):
+            tab.markdown("""
+            ## Agent Configuration Format
+
+            Each agent should have the following properties:
+
+            - `role`: The agent's role in the crew (e.g., "Researcher")
+            - `goal`: What the agent aims to accomplish
+            - `backstory`: The agent's background and expertise
+            - `verbose`: Set to true for detailed output
+            - `allow_delegation`: Whether the agent can delegate tasks
+
+            Example:
+            ```yaml
+            researcher:
+              role: "Research Agent"
+              goal: "Find accurate information on the topic."
+              backstory: "You are an expert researcher with years of experience."
+              verbose: true
+              allow_delegation: false
+            ```
+            """)
+
+        # Edit YAML content
+        yaml_editor = tab.text_area(
+            "Edit Agents Configuration:",
+            value=st.session_state.agents_yaml,
+            height=400
+        )
+
+        # If content changed, validate and update
+        if yaml_editor != st.session_state.agents_yaml:
+            is_valid, error = self._validate_yaml(yaml_editor)
+            if is_valid:
+                st.session_state.agents_yaml = yaml_editor
+                st.session_state.agents_yaml_edited = True
+                tab.success("YAML validated successfully!")
+            else:
+                tab.error(error)
+
+        # Save button
+        col1, col2 = tab.columns([1, 1])
+        with col1:
+            if tab.button("Save Agents Configuration", use_container_width=True, type="primary"):
+                if st.session_state.agents_yaml_edited:
+                    success, error = self._save_yaml_file(self.agents_config_path, st.session_state.agents_yaml)
+                    if success:
+                        tab.success(f"Configuration saved to {self.agents_config_path}")
+                        st.session_state.agents_yaml_edited = False
+                    else:
+                        tab.error(error)
+                else:
+                    tab.info("No changes to save.")
+
+        with col2:
+            if tab.button("Reload from File", use_container_width=True):
+                agents_yaml, error = self._load_yaml_to_string(self.agents_config_path)
+                if error:
+                    tab.warning(error)
+                else:
+                    st.session_state.agents_yaml = agents_yaml
+                    st.session_state.agents_yaml_edited = False
+                    tab.success("Reloaded configuration from file.")
+
+        # Preview structured data
+        if st.session_state.agents_yaml:
+            with tab.expander("Preview Parsed Configuration", expanded=False):
+                try:
+                    agents_data = yaml.safe_load(st.session_state.agents_yaml)
+                    tab.json(agents_data)
+                except Exception as e:
+                    tab.error(f"Could not parse YAML: {str(e)}")
+
+    def _create_tasks_tab(self, tab):
+        """Create the tasks configuration tab."""
+        tab.subheader("📋 Task Configuration")
+
+        # Load tasks configuration if not already loaded
+        if not st.session_state.tasks_yaml:
+            tasks_yaml, error = self._load_yaml_to_string(self.tasks_config_path)
+            if error:
+                tab.warning(error)
+                # Create a default template if file doesn't exist
+                tasks_yaml = """# Task Configuration
+# Define your CrewAI tasks here
+
+planning_task:
+  description: "Create a comprehensive plan for a blog post on {topic}."
+  expected_output: "A detailed blog post plan with sections, key points for each section, and a compelling title."
+  agent: "planner"
+  async_execution: false
+  human_input: false
+
+writing_task:
+  description: "Write a comprehensive blog post about {topic} following the provided plan."
+  expected_output: "A comprehensive, engaging, and factually accurate blog post with proper sections and formatting."
+  agent: "writer"
+  async_execution: false
+  human_input: false
+  context: ["planning_task"]
+
+editing_task:
+  description: "Review and improve the blog post for clarity, coherence, grammar, and engaging style."
+  expected_output: "A polished, error-free, and highly engaging final blog post that maintains accuracy while being enjoyable to read."
+  agent: "editor"
+  async_execution: false
+  human_input: false
+  context: ["writing_task"]
+"""
+            st.session_state.tasks_yaml = tasks_yaml
+
+        # Show file path
+        tab.caption(f"Configuration file: {self.tasks_config_path}")
+
+        # Add a hint about YAML format
+        with tab.expander("YAML Format Guidelines", expanded=False):
+            tab.markdown("""
+            ## Task Configuration Format
+
+            Each task should have the following properties:
+
+            - `description`: What the task involves (can include placeholders like {topic})
+            - `expected_output`: What the task should produce
+            - `agent`: Which agent performs this task (must match an agent name)
+            - `async_execution`: Whether the task runs asynchronously
+            - `human_input`: Whether human input is required
+            - `context`: List of tasks whose output this task depends on
+
+            Example:
+            ```yaml
+            research_task:
+              description: "Research facts about {topic}"
+              expected_output: "A comprehensive report with key findings"
+              agent: "researcher"
+              async_execution: false
+              human_input: false
+            ```
+            """)
+
+        # Edit YAML content
+        yaml_editor = tab.text_area(
+            "Edit Tasks Configuration:",
+            value=st.session_state.tasks_yaml,
+            height=400
+        )
+
+        # If content changed, validate and update
+        if yaml_editor != st.session_state.tasks_yaml:
+            is_valid, error = self._validate_yaml(yaml_editor)
+            if is_valid:
+                st.session_state.tasks_yaml = yaml_editor
+                st.session_state.tasks_yaml_edited = True
+                tab.success("YAML validated successfully!")
+            else:
+                tab.error(error)
+
+        # Save button
+        col1, col2 = tab.columns([1, 1])
+        with col1:
+            if tab.button("Save Tasks Configuration", use_container_width=True, type="primary"):
+                if st.session_state.tasks_yaml_edited:
+                    success, error = self._save_yaml_file(self.tasks_config_path, st.session_state.tasks_yaml)
+                    if success:
+                        tab.success(f"Configuration saved to {self.tasks_config_path}")
+                        st.session_state.tasks_yaml_edited = False
+                    else:
+                        tab.error(error)
+                else:
+                    tab.info("No changes to save.")
+
+        with col2:
+            if tab.button("Reload from File", use_container_width=True):
+                tasks_yaml, error = self._load_yaml_to_string(self.tasks_config_path)
+                if error:
+                    tab.warning(error)
+                else:
+                    st.session_state.tasks_yaml = tasks_yaml
+                    st.session_state.tasks_yaml_edited = False
+                    tab.success("Reloaded configuration from file.")
+
+        # Preview structured data
+        if st.session_state.tasks_yaml:
+            with tab.expander("Preview Parsed Configuration", expanded=False):
+                try:
+                    tasks_data = yaml.safe_load(st.session_state.tasks_yaml)
+                    tab.json(tasks_data)
+                except Exception as e:
+                    tab.error(f"Could not parse YAML: {str(e)}")
+
     def _create_output_tab(self, tab):
         """Create the output preview tab."""
         # Add a refresh button at the top of this tab
@@ -1318,6 +1634,10 @@ class CrewAIStreamlitUI:
 
         # Create visible tabs based on configuration
         tab_options = []
+        if self.show_agents_tab:
+            tab_options.append("🤖 Agents")
+        if self.show_tasks_tab:
+            tab_options.append("📋 Tasks")
         if self.show_log_tab:
             tab_options.append("📋 Live Logs")
         if self.show_output_tab:
@@ -1332,6 +1652,16 @@ class CrewAIStreamlitUI:
 
         # Fill tabs with content
         tab_index = 0
+
+        # Agents tab
+        if self.show_agents_tab:
+            self._create_agents_tab(tabs[tab_index])
+            tab_index += 1
+
+        # Tasks tab
+        if self.show_tasks_tab:
+            self._create_tasks_tab(tabs[tab_index])
+            tab_index += 1
 
         # Log tab
         if self.show_log_tab:
@@ -1368,3 +1698,4 @@ def launch_streamlit_ui(config=None):
     # Create and run the UI
     ui = CrewAIStreamlitUI(**config)
     ui.run()
+
