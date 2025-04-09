@@ -3,8 +3,8 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "crewai-extensions"
-version = "0.4.0"
+name = "crewai_extensions"
+version = "0.4.3.4"
 description = "Extensions for CrewAI with enhanced LLM functionality"
 readme = "README.md"
 authors = [{name = "Wido Jansen", email = "widojansen@gmail.com"}]
@@ -26,5 +26,5 @@ dependencies = [
 requires-python = ">=3.8"
 
 [project.urls]
-"Homepage" = "https://github.com/widojansen/crewai-extensions"
-"Bug Tracker" = "https://github.com/widojansen/crewai-extensions/issues"
+"Homepage" = "https://github.com/widojansen/crewai_extensions"
+"Bug Tracker" = "https://github.com/widojansen/crewai_extensions/issues"

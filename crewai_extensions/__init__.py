@@ -12,5 +12,5 @@ from crewai_extensions.logging_utils import (
 from crewai_extensions.llm_logging import LLMLoggingHandler
 from crewai_extensions.streamlit_ui import CrewAIStreamlitUI, launch_streamlit_ui
 
-__version__ = "0.4.0"
+__version__ = "0.4.3.4"
 
