@@ -1443,7 +1443,7 @@ class CrewAIStreamlitUI:
                     file_name=os.path.basename(st.session_state.current_output_file),
                     mime=f"text/{self.output_file_extension}",
                     use_container_width=True,
-                    key="tasks_yaml_editor"
+                    key="output_file_btn"
                 )
 
             # Display the content
