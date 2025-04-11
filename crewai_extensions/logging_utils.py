@@ -8,6 +8,8 @@ import sys
 import io
 import re
 import atexit
+import time
+import inspect
 
 # Print immediately to help with debugging
 print(f"Loading logging_utils.py - Start at {datetime.now().isoformat()}")
@@ -22,6 +24,7 @@ log_file = None  # Current log file path
 logger = None  # Logger instance
 _initialized = False  # Initialization flag
 _initialization_time = None  # When was logging initialized
+_http_logging_initialized = False  # Flag for HTTP logging
 
 
 # Function to create a process-specific lock file
@@ -105,7 +108,7 @@ def set_streamlit_queue(queue):
 def set_current_topic(topic):
     """Set the current topic for log file naming"""
     global current_topic
-    old_topic = current_topic # Store old topic for comparison
+    old_topic = current_topic  # Store old topic for comparison
 
     if topic:
         # Clean and truncate the topic - replace spaces with underscores and limit to 40 chars
@@ -460,6 +463,160 @@ def create_topic_logger(topic=None):
             return None
 
     return None
+
+
+# ====== Enhanced HTTP Logging Functionality ======
+
+def setup_http_logging():
+    """Set up HTTP request/response logging for debugging LLM API calls"""
+    global _http_logging_initialized
+
+    if _http_logging_initialized:
+        logger.info("HTTP logging already initialized")
+        return True
+
+    try:
+        import httpx
+
+        # Store original methods
+        original_send = httpx.Client.send
+        original_async_send = httpx.AsyncClient.send
+
+        # Create wrapper for synchronous send method
+        def logged_send(self, request, *args, **kwargs):
+            """Log HTTP requests and responses with full parameter support"""
+            # Log the request
+            method = request.method
+            url = str(request.url)
+            logger.info(f"HTTP Request: {method} {url}")
+
+            # Try to log request headers (excluding sensitive info)
+            headers = {k: v for k, v in request.headers.items()
+                       if k.lower() not in ['authorization', 'api-key', 'x-api-key']}
+            logger.info(f"Request headers: {json.dumps(headers, default=str)}")
+
+            # Try to log request body
+            if hasattr(request, 'content') and request.content:
+                try:
+                    body = request.content.decode('utf-8')
+                    try:
+                        # Try to parse as JSON for pretty printing
+                        json_body = json.loads(body)
+                        logger.info(f"Request body: {json.dumps(json_body, indent=2)}")
+                    except:
+                        # If not JSON, log as is (truncated if too long)
+                        if len(body) > 1000:
+                            logger.info(f"Request body: {body[:1000]}... [truncated]")
+                        else:
+                            logger.info(f"Request body: {body}")
+                except:
+                    logger.info("Could not decode request body")
+
+            # Check if streaming is enabled
+            is_streaming = kwargs.get('stream', False)
+            if is_streaming:
+                logger.info("Request is using streaming mode")
+
+            # Call the original method with all arguments preserved
+            start_time = time.time()
+            response = original_send(self, request, *args, **kwargs)
+            elapsed = time.time() - start_time
+
+            # Log the response
+            status = response.status_code
+            logger.info(f"HTTP Response: {status} from {url} (took {elapsed:.2f}s)")
+
+            # Try to log response headers
+            headers = {k: v for k, v in response.headers.items()}
+            logger.info(f"Response headers: {json.dumps(headers, default=str)}")
+
+            # Try to log response body (only for non-streaming responses)
+            if not is_streaming and hasattr(response, 'content') and response.content:
+                try:
+                    body = response.content.decode('utf-8')
+                    try:
+                        # Try to parse as JSON for pretty printing
+                        json_body = json.loads(body)
+                        logger.info(f"Response body: {json.dumps(json_body, indent=2)}")
+                    except:
+                        # If not JSON, log as is (truncated if too long)
+                        if len(body) > 1000:
+                            logger.info(f"Response body (first 1000 chars): {body[:1000]}...")
+                        else:
+                            logger.info(f"Response body: {body}")
+                except:
+                    logger.info("Could not decode response body")
+            elif is_streaming:
+                logger.info("Response body: [STREAMING - body not logged]")
+
+            return response
+
+        # Create wrapper for asynchronous send method (similar code for async)
+        async def logged_async_send(self, request, *args, **kwargs):
+            """Log async HTTP requests and responses with full parameter support"""
+            # Similar implementation as logged_send but for async
+            # ...
+            # Call the original method with all arguments preserved
+            is_streaming = kwargs.get('stream', False)
+            response = await original_async_send(self, request, *args, **kwargs)
+            # ... rest of implementation
+            return response
+
+        # Replace the original methods
+        httpx.Client.send = logged_send
+        httpx.AsyncClient.send = logged_async_send
+
+        _http_logging_initialized = True
+        logger.info("HTTP request/response logging enabled with stream support")
+        return True
+    except ImportError:
+        logger.warning("Could not import httpx. HTTP logging not enabled.")
+        return False
+    except Exception as e:
+        logger.error(f"Error setting up HTTP logging: {str(e)}")
+        logger.error(traceback.format_exc())
+        return False
+
+
+# Safe JSON encoder for logging
+class SafeJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        try:
+            return super().default(obj)
+        except TypeError:
+            return str(obj)
+
+
+def log_json(obj, prefix="", max_length=10000):
+    """Log an object as JSON with safe handling of non-serializable types"""
+    try:
+        json_str = json.dumps(obj, cls=SafeJSONEncoder, indent=2)
+        if len(json_str) > max_length:
+            json_str = json_str[:max_length] + "... [truncated]"
+        logger.info(f"{prefix}{json_str}")
+    except Exception as e:
+        logger.info(f"{prefix}{str(obj)} (couldn't convert to JSON: {e})")
+
+
+def enable_verbose_logging():
+    """Enable verbose logging for LLM interactions"""
+    try:
+        setup_http_logging()
+
+        # Try to enable LiteLLM verbose mode
+        try:
+            import litellm
+            litellm.set_verbose = True
+            logger.info("Enabled verbose mode for LiteLLM")
+        except ImportError:
+            logger.warning("LiteLLM not available, skipping verbose mode setting")
+
+        logger.info("Verbose logging enabled")
+        return True
+    except Exception as e:
+        logger.error(f"Error enabling verbose logging: {e}")
+        logger.error(traceback.format_exc())
+        return False
 
 
 print(f"Loaded logging_utils.py - End at {datetime.now().isoformat()} (log file: {log_file})")

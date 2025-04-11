@@ -9,6 +9,8 @@ import os
 import sys
 import threading
 import warnings
+import time
+import traceback
 from contextlib import contextmanager
 from typing import Any, Dict, List, Literal, Optional, Type, Union, cast
 
@@ -26,14 +28,120 @@ from crewai.utilities.exceptions.context_window_exceeding_exception import (
     LLMContextLengthExceededException,
 )
 
+# Try to import logging utils
+try:
+    from crewai_extensions.logging_utils import logger, log_json, setup_http_logging
+except ImportError:
+    try:
+        from logging_utils import logger, log_json, setup_http_logging
+    except ImportError:
+        # If we can't import, create basic versions
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger('CrewAI_LLM')
+
+
+        def log_json(obj, prefix="", max_length=10000):
+            try:
+                json_str = json.dumps(obj, default=str, indent=2)
+                if len(json_str) > max_length:
+                    json_str = json_str[:max_length] + "... [truncated]"
+                logger.info(f"{prefix}{json_str}")
+            except Exception as e:
+                logger.info(f"{prefix}{str(obj)} (couldn't convert to JSON: {e})")
+
+
+        def setup_http_logging():
+            logger.warning("HTTP logging setup function not available")
+            return False
+
+# Initialize HTTP logging
+setup_http_logging()
+
 load_dotenv()
 
 
 def safe_litellm_completion(**kwargs):
-    """Wrapper for litellm.completion that removes non-serializable parameters."""
+    """Wrapped version of litellm.completion with enhanced logging."""
+    # Log the request
+    try:
+        model = kwargs.get('model', 'unknown')
+        logger.info("=" * 80)
+        logger.info(f"LITELLM COMPLETION REQUEST - MODEL: {model}")
+        logger.info("=" * 80)
+
+        # Log request details
+        kwargs_copy = kwargs.copy()
+
+        # Handle sensitive params
+        for key in ['api_key', 'authorization']:
+            if key in kwargs_copy:
+                kwargs_copy[key] = "[REDACTED]"
+
+        # Special handling for messages
+        if 'messages' in kwargs_copy:
+            messages = kwargs_copy.pop('messages')
+            logger.info(f"Messages ({len(messages)}):")
+            for idx, msg in enumerate(messages):
+                role = msg.get('role', 'unknown')
+                content = msg.get('content', '')
+                if isinstance(content, str):
+                    preview = content[:500] + "..." if len(content) > 500 else content
+                    logger.info(f"  Message {idx + 1} ({role}):\n{preview}")
+                else:
+                    logger.info(f"  Message {idx + 1} ({role}): {json.dumps(content, default=str)}")
+
+        # Log remaining parameters
+        log_json(kwargs_copy, prefix="Other parameters: ")
+    except Exception as e:
+        logger.error(f"Error logging LiteLLM request: {e}")
+
+    # Timing
+    start_time = time.time()
+
+    # Remove non-serializable parameters
     if "callback_manager" in kwargs:
-        del kwargs["callback_manager"]  # Remove non-serializable object
-    return litellm.completion(**kwargs)  # <-- Fixed: Call litellm.completion directly instead of self-recursion
+        del kwargs["callback_manager"]
+
+    try:
+        # Make the actual API call
+        response = litellm.completion(**kwargs)
+
+        # Log the response
+        elapsed = time.time() - start_time
+        try:
+            logger.info("=" * 80)
+            logger.info(f"LITELLM COMPLETION RESPONSE (took {elapsed:.2f}s)")
+            logger.info("=" * 80)
+
+            # Extract content
+            if hasattr(response, 'choices') and response.choices:
+                first_choice = response.choices[0]
+                if hasattr(first_choice, 'message'):
+                    message = first_choice.message
+                    if hasattr(message, 'content') and message.content:
+                        content = message.content
+                        preview = content[:1000] + "..." if len(content) > 1000 else content
+                        logger.info(f"Response content:\n{preview}")
+
+            # Log usage
+            if hasattr(response, 'usage') and response.usage:
+                usage = response.usage
+                log_json(usage.__dict__ if hasattr(usage, '__dict__') else usage, prefix="Usage: ")
+
+            # Log full response
+            if hasattr(response, '__dict__'):
+                response_dict = {k: v for k, v in response.__dict__.items() if k != '_response_ms'}
+                log_json(response_dict, prefix="Full response: ", max_length=5000)
+        except Exception as e:
+            logger.error(f"Error logging LiteLLM response: {e}")
+
+        return response
+    except Exception as e:
+        # Log error
+        elapsed = time.time() - start_time
+        logger.error(f"LiteLLM completion error after {elapsed:.2f}s: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise
 
 
 class FilteredStream:
@@ -101,6 +209,9 @@ LLM_CONTEXT_WINDOW_SIZES = {
     "Llama-3.2-11B-Vision-Instruct": 16384,
     "Meta-Llama-3.2-3B-Instruct": 4096,
     "Meta-Llama-3.2-1B-Instruct": 16384,
+    # ollama
+    "llama3": 8192,
+    "llama3.1": 131072,
 }
 
 DEFAULT_CONTEXT_WINDOW_SIZE = 8192
@@ -153,6 +264,9 @@ class LLM:
             reasoning_effort: Optional[Literal["none", "low", "medium", "high"]] = None,
             **kwargs,
     ):
+        # Log LLM initialization
+        logger.info(f"Initializing LLM with model: {model}")
+
         self.model = model
         self.timeout = timeout
         self.temperature = temperature
@@ -177,10 +291,22 @@ class LLM:
         self.additional_params = kwargs
         self.is_anthropic = self._is_anthropic_model(model)
 
+        # Log key parameters
+        config_info = {
+            "model": model,
+            "temperature": temperature,
+            "top_p": top_p,
+            "max_tokens": max_tokens or max_completion_tokens,
+            "base_url": base_url,
+            "api_base": api_base,
+            "reasoning_effort": reasoning_effort,
+        }
+        log_json(config_info, prefix="LLM Configuration: ")
+
         litellm.drop_params = True
-        print(f"LiteLLM Turn Debug On")
+        logger.info(f"LiteLLM Turn Debug On")
         litellm._turn_on_debug()
-        print(f"LiteLLM Set raw request/response logging")
+        logger.info(f"LiteLLM Set raw request/response logging")
         litellm.log_raw_request_response = True
 
         # Normalize self.stop to always be a List[str]
@@ -235,21 +361,6 @@ class LLM:
             TypeError: If messages format is invalid
             ValueError: If response format is not supported
             LLMContextLengthExceededException: If input exceeds model's context limit
-
-        Examples:
-            # Example 1: Simple string input
-            >>> response = llm.call("Return the name of a random city.")
-            >>> print(response)
-            "Paris"
-
-            # Example 2: Message list with system and user messages
-            >>> messages = [
-            ...     {"role": "system", "content": "You are a geography expert"},
-            ...     {"role": "user", "content": "What is France's capital?"}
-            ... ]
-            >>> response = llm.call(messages)
-            >>> print(response)
-            "The capital of France is Paris."
         """
         # Validate parameters before proceeding with the call.
         self._validate_call_params()
@@ -263,6 +374,30 @@ class LLM:
             for message in messages:
                 if message.get("role") == "system":
                     message["role"] = "assistant"
+
+        # Log the request with request ID for tracing
+        request_id = f"req_{time.time():.0f}"
+        logger.info(f"LLM Call [{request_id}] - Model: {self.model}")
+
+        # Log message details
+        logger.info(f"LLM Call [{request_id}] - Messages ({len(messages)}):")
+        for idx, message in enumerate(messages):
+            role = message.get('role', 'unknown')
+            content = message.get('content', '')
+            if isinstance(content, str):
+                preview = content[:500] + "..." if len(content) > 500 else content
+                logger.info(f"  Message {idx + 1} ({role}):\n{preview}")
+            else:
+                logger.info(f"  Message {idx + 1} ({role}): {json.dumps(content, default=str)}")
+
+        # Log tool information if present
+        if tools:
+            logger.info(f"LLM Call [{request_id}] - Tools ({len(tools)}):")
+            for idx, tool in enumerate(tools):
+                logger.info(f"  Tool {idx + 1}: {tool.get('name', 'unnamed')}")
+
+        # Start timing
+        start_time = time.time()
 
         with suppress_warnings():
             if callbacks and len(callbacks) > 0:
@@ -302,15 +437,20 @@ class LLM:
                 # Remove None values from params
                 params = {k: v for k, v in params.items() if v is not None}
 
-                # --- 2) Make the completion call
+                # --- 3) Make the completion call
                 response = safe_litellm_completion(**params)
+
+                # Log completion time
+                elapsed = time.time() - start_time
+                logger.info(f"LLM Call [{request_id}] completed in {elapsed:.2f}s")
+
                 response_message = cast(Choices, cast(ModelResponse, response).choices)[
                     0
                 ].message
                 text_response = response_message.content or ""
                 tool_calls = getattr(response_message, "tool_calls", [])
 
-                # --- 3) Handle callbacks with usage info
+                # --- 4) Handle callbacks with usage info
                 if callbacks and len(callbacks) > 0:
                     for callback in callbacks:
                         if hasattr(callback, "log_success_event"):
@@ -319,15 +459,15 @@ class LLM:
                                 callback.log_success_event(
                                     kwargs=params,
                                     response_obj={"usage": usage_info},
-                                    start_time=0,
-                                    end_time=0,
+                                    start_time=start_time,
+                                    end_time=time.time(),
                                 )
 
-                # --- 4) If no tool calls, return the text response
+                # --- 5) If no tool calls, return the text response
                 if not tool_calls or not available_functions:
                     return text_response
 
-                # --- 5) Handle the tool call
+                # --- 6) Handle the tool call
                 tool_call = tool_calls[0]
                 function_name = tool_call.function.name
 
@@ -335,7 +475,7 @@ class LLM:
                     try:
                         function_args = json.loads(tool_call.function.arguments)
                     except json.JSONDecodeError as e:
-                        logging.warning(f"Failed to parse function arguments: {e}")
+                        logger.warning(f"Failed to parse function arguments: {e}")
                         return text_response
 
                     fn = available_functions[function_name]
@@ -345,22 +485,26 @@ class LLM:
                         return result
 
                     except Exception as e:
-                        logging.error(
+                        logger.error(
                             f"Error executing function '{function_name}': {e}"
                         )
                         return text_response
 
                 else:
-                    logging.warning(
+                    logger.warning(
                         f"Tool call requested unknown function '{function_name}'"
                     )
                     return text_response
 
             except Exception as e:
+                elapsed = time.time() - start_time
+                logger.error(f"LLM Call [{request_id}] failed after {elapsed:.2f}s: {str(e)}")
+
                 if not LLMContextLengthExceededException(
                         str(e)
                 )._is_context_limit_error(str(e)):
-                    logging.error(f"LiteLLM call failed: {str(e)}")
+                    logger.error(f"LiteLLM call failed: {str(e)}")
+                    logger.error(traceback.format_exc())
                 raise
 
     def _format_messages_for_provider(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
@@ -430,7 +574,7 @@ class LLM:
             params = get_supported_openai_params(model=self.model)
             return "response_format" in params
         except Exception as e:
-            logging.error(f"Failed to get supported params: {str(e)}")
+            logger.error(f"Failed to get supported params: {str(e)}")
             return False
 
     def supports_stop_words(self) -> bool:
@@ -438,7 +582,7 @@ class LLM:
             params = get_supported_openai_params(model=self.model)
             return "stop" in params
         except Exception as e:
-            logging.error(f"Failed to get supported params: {str(e)}")
+            logger.error(f"Failed to get supported params: {str(e)}")
             return False
 
     def get_context_window_size(self) -> int:
@@ -455,6 +599,8 @@ class LLM:
         for key, value in LLM_CONTEXT_WINDOW_SIZES.items():
             if self.model.startswith(key):
                 self.context_window_size = int(value * CONTEXT_WINDOW_USAGE_RATIO)
+                logger.info(f"Set context window size for {self.model} to {self.context_window_size}")
+                break
         return self.context_window_size
 
     def set_callbacks(self, callbacks: List[Any]):
@@ -526,7 +672,7 @@ def safe_log_request_response(data):
     try:
         return json.dumps(data, cls=SafeJSONEncoder, indent=2)
     except TypeError as serialization_error:
-        print(f"Serialization error in logging: {serialization_error}")
+        logger.error(f"Serialization error in logging: {serialization_error}")
         return str(data)  # Fallback to string representation
 
 
