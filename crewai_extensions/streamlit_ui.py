@@ -1711,161 +1711,247 @@ class CrewAIStreamlitUI:
                 tab.markdown("</div>", unsafe_allow_html=True)
 
     def run(self):
-        """Run the Streamlit UI."""
-        # Initialize session state
-        self._initialize_session_state()
-
-        # Silence warnings
-        self._silence_warnings()
-
-        # Set page config
+        """
+        Run the Streamlit UI
+        """
+        # Set page config to wide mode
         st.set_page_config(
             page_title=self.page_title,
             page_icon=self.page_icon,
             layout="wide",
-            initial_sidebar_state="collapsed"
+            initial_sidebar_state="expanded"
         )
 
-        # Title and description with custom styling
-        st.markdown(f"""
+        # Initialize session state for menu selection if it doesn't exist
+        if 'menu_selection' not in st.session_state:
+            st.session_state.menu_selection = "Run Crew"
+
+        # Create a sidebar menu
+        st.sidebar.title("Navigation")
+
+        # Add CSS styling for the menu
+        st.sidebar.markdown("""
         <style>
-        .main-header {{
-            text-align: center;
-            padding: 1rem 0;
-            color: #1E3A8A;
-            font-size: 2.5rem;
+        .sidebar-menu {
+            padding: 10px;
+            background-color: #f0f2f6;
+            border-radius: 5px;
+            margin-bottom: 10px;
             font-weight: bold;
-        }}
-        .sub-header {{
             text-align: center;
-            padding-bottom: 1.5rem;
-            color: #4B5563;
-            font-size: 1.2rem;
-        }}
+            cursor: pointer;
+        }
+        .sidebar-menu:hover {
+            background-color: #e0e2e6;
+        }
+        .selected {
+            background-color: #4e8cff;
+            color: white;
+        }
         </style>
-
-        <div class="main-header">{self.page_icon} {self.project_name}</div>
-        <div class="sub-header">Generate output using AI agents</div>
         """, unsafe_allow_html=True)
 
-        # Fixed top section with inputs - using a container with custom styling
-        with st.container():
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                input_value = st.text_input(
-                    self.input_field_label,
+        # Menu items
+        menu_items = ["Run Crew", "Dashboard"]
+
+        # Generate menu buttons
+        for item in menu_items:
+            selected_class = "selected" if st.session_state.menu_selection == item else ""
+            if st.sidebar.button(item, key=f"menu_{item}",
+                                 use_container_width=True,
+                                 type="primary" if st.session_state.menu_selection == item else "secondary"):
+                st.session_state.menu_selection = item
+                st.rerun()
+
+        # Display the selected page content
+        if st.session_state.menu_selection == "Run Crew":
+            self._display_run_crew_page()
+        elif st.session_state.menu_selection == "Dashboard":
+            self._display_dashboard_page()
+
+    def _display_run_crew_page(self):
+        """
+        Display the Run Crew page with all the original functionality
+        """
+        # Add the header
+        st.title(f"{self.project_name} - Run Crew")
+
+        # Initialize the session state
+        self._initialize_session_state()
+
+        # Silence specific Streamlit warnings
+        self._silence_warnings()
+
+        col1, col2 = st.columns([3, 1])
+
+        # Add the input field to the first column
+        with col1:
+            if self.input_field_label:
+                user_input = st.text_area(
+                    label=self.input_field_label,
                     value=self.input_field_default,
+                    placeholder=self.input_field_placeholder,
                     help=self.input_field_help,
-                    placeholder=self.input_field_placeholder
+                    key="user_input"
                 )
-            with col2:
-                st.markdown('<div style="height: 28px;"></div>', unsafe_allow_html=True)
-                start_button = st.button(
-                    "🚀 Generate",
-                    disabled=st.session_state.process_running,
-                    use_container_width=True,
-                    type="primary"
-                )
+        with col2:
+            # Create a container to vertically center the button
+            container = st.container()
+            # Add some vertical space to roughly align with the text area
+            st.write("")
+            st.write("")
+            run_button = st.button("Run", type="primary", use_container_width=True)
 
-        # Display status
-        status_container = st.empty()
-        if st.session_state.process_running:
-            status_container.info("Process in progress...")
+            # Handle the button click
+            if run_button:
+                if "process_running" in st.session_state and st.session_state.process_running:
+                    st.warning("A process is already running. Please wait for it to complete.")
+                else:
+                    # Get the user input value
+                    topic = st.session_state.user_input if "user_input" in st.session_state else ""
+
+                    # Clean the topic if a function is provided
+                    if self.topic_clean_func and topic:
+                        topic = self.topic_clean_func(topic)
+
+                    # Start the process
+                    self.start_process(input_value=topic)
+
+        # Add a separator between input/button and tabs
+        st.markdown("---")
+
+        # Create tabs
+        tabs = []
+        tab_names = []
+
+        if self.show_agents_tab:
+            tab_names.append("Agents")
+
+        if self.show_tasks_tab:
+            tab_names.append("Tasks")
+
+        if self.show_output_tab:
+            tab_names.append("Output")
+
+        if self.show_log_tab:
+            tab_names.append("Logs")
+
+        if self.show_files_tab:
+            tab_names.append("Files")
+
+        # Only create tabs if we have more than one
+        if len(tab_names) > 1:
+            tabs = st.tabs(tab_names)
         else:
-            if st.session_state.current_output_file:
-                status_container.success("Process complete!")
-            else:
-                status_container.info(f"Enter {self.input_field_label.lower()} and click 'Generate' to start.")
+            # For a single tab, we'll just use the main area
+            tabs = [st]
 
-        # Check for and display toast notification
-        if not st.session_state.process_running and st.session_state.show_completion_notification:
-            try:
-                # Get input value for personalized notification
-                input_val = getattr(st.session_state, 'input_value', self.project_name)
-                # Show toast notification
-                st.toast(f"✅ {input_val} generation complete!", icon="🎉")
-                # Reset the flag after showing notification
-                st.session_state.show_completion_notification = False
-            except AttributeError:
-                # Fallback for older Streamlit versions
-                pass
+        # Initialize tab index counter
+        tab_idx = 0
 
-        # Handle the start button click
-        if start_button and not st.session_state.process_running:
-            if input_value:
-                status_container.info(f"Starting process for: {input_value}")
-                success = self.start_process(input_value)
-                if not success:
-                    status_container.error("Failed to start process.")
-            else:
-                status_container.error(f"Please enter {self.input_field_label.lower()} before starting.")
-
-        # Process any waiting log messages
-        self._update_log_display()
-
-        # Create tabs with custom styling
-        st.markdown("""
-        <style>
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 2rem;
-        }
-        .stTabs [data-baseweb="tab"] {
-            height: 4rem;
-            white-space: pre-wrap;
-            font-size: 1rem;
-            font-weight: 500;
-            padding-top: 0.25rem;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
-        # Create visible tabs based on configuration
-        tab_options = []
+        # Create the tabs content
         if self.show_agents_tab:
-            tab_options.append("🤖 Agents")
+            with tabs[tab_idx]:
+                self._create_agents_tab(tabs[tab_idx])
+            tab_idx += 1
+
         if self.show_tasks_tab:
-            tab_options.append("📋 Tasks")
-        if self.show_log_tab:
-            tab_options.append("📋 Live Logs")
+            with tabs[tab_idx]:
+                self._create_tasks_tab(tabs[tab_idx])
+            tab_idx += 1
+
         if self.show_output_tab:
-            tab_options.append("📄 Output Preview")
-        if self.show_files_tab:
-            tab_options.append("💾 Files")
+            with tabs[tab_idx]:
+                self._create_output_tab(tabs[tab_idx])
+            tab_idx += 1
 
-        if not tab_options:  # If no tabs enabled, default to at least showing output
-            tab_options = ["📄 Output Preview"]
-
-        tabs = st.tabs(tab_options)
-
-        # Fill tabs with content
-        tab_index = 0
-
-        # Agents tab
-        if self.show_agents_tab:
-            self._create_agents_tab(tabs[tab_index])
-            tab_index += 1
-
-        # Tasks tab
-        if self.show_tasks_tab:
-            self._create_tasks_tab(tabs[tab_index])
-            tab_index += 1
-
-        # Log tab
         if self.show_log_tab:
-            self._create_log_tab(tabs[tab_index])
-            tab_index += 1
+            with tabs[tab_idx]:
+                self._create_log_tab(tabs[tab_idx])
+            tab_idx += 1
 
-        # Output tab
-        if self.show_output_tab:
-            self._create_output_tab(tabs[tab_index])
-            tab_index += 1
-
-        # Files tab
         if self.show_files_tab:
-            self._create_files_tab(tabs[tab_index])
+            with tabs[tab_idx]:
+                self._create_files_tab(tabs[tab_idx])
 
-        # Ensure UI updates regularly if there's a process running
+        # # Create the input field and run button at the bottom
+        # st.markdown("---")
+        #
+        # # Create two columns for the input field and button
+        # col1, col2 = st.columns([3, 1])
+        #
+        # # Add the input field to the first column
+        # with col1:
+        #     # Check if we should display the field
+        #     if self.input_field_label:
+        #         user_input = st.text_area(
+        #             label=self.input_field_label,
+        #             value=self.input_field_default,
+        #             placeholder=self.input_field_placeholder,
+        #             help=self.input_field_help,
+        #             key="user_input"
+        #         )
+        #
+        # # Add the run button to the second column
+        # with col2:
+        #     # Create a container to vertically center the button
+        #     container = st.container()
+        #     # Add some vertical space to roughly align with the text area
+        #     st.write("")
+        #     st.write("")
+        #     run_button = st.button("Run", type="primary", use_container_width=True)
+        #
+        #     # Handle the button click
+        #     if run_button:
+        #         if "process_running" in st.session_state and st.session_state.process_running:
+        #             st.warning("A process is already running. Please wait for it to complete.")
+        #         else:
+        #             # Get the user input value
+        #             topic = st.session_state.user_input if "user_input" in st.session_state else ""
+        #
+        #             # Clean the topic if a function is provided
+        #             if self.topic_clean_func and topic:
+        #                 topic = self.topic_clean_func(topic)
+        #
+        #             # Start the process
+        #             self.start_process(topic=topic)
+
+        # Check and update the process status
         self._ensure_refresh()
+
+    def _display_dashboard_page(self):
+        """
+        Display the Dashboard page (currently empty)
+        """
+        st.title("Dashboard")
+        st.write("Welcome to the Dashboard! This page is currently under development.")
+
+        # Add a placeholder for future dashboard content
+        st.info("Dashboard features coming soon...")
+
+        # Add a sample chart as a placeholder
+        import numpy as np
+
+        # Sample data for demonstration
+        chart_data = np.random.randn(20, 3)
+
+        st.subheader("Sample Visualization")
+        st.line_chart(chart_data)
+
+        # Add some placeholder widgets
+        st.subheader("Settings")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.checkbox("Enable advanced features", key="dashboard_advanced")
+            st.slider("Sample parameter", 0, 100, 50, key="dashboard_slider")
+
+        with col2:
+            st.selectbox("View mode", ["Standard", "Detailed", "Compact"], key="dashboard_view")
+            st.number_input("Update frequency (seconds)", min_value=1, max_value=60, value=5, key="dashboard_frequency")
+
+        st.button("Refresh Dashboard", key="dashboard_refresh")
 
 
 def launch_streamlit_ui(config=None):

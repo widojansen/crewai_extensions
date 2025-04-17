@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="crewai_extensions",
-    version="0.4.4.2",
+    version="0.5",
     packages=find_packages(),
     install_requires=[
         "crewai",  # Base package dependency
