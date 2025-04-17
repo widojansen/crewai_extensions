@@ -1719,7 +1719,7 @@ class CrewAIStreamlitUI:
             page_title=self.page_title,
             page_icon=self.page_icon,
             layout="wide",
-            initial_sidebar_state="expanded"
+            initial_sidebar_state="auto"
         )
 
         # Initialize session state for menu selection if it doesn't exist
@@ -1752,7 +1752,7 @@ class CrewAIStreamlitUI:
         """, unsafe_allow_html=True)
 
         # Menu items
-        menu_items = ["Run Crew", "Dashboard"]
+        menu_items = ["Run Crew", "Config", "Dashboard"]
 
         # Generate menu buttons
         for item in menu_items:
@@ -1768,6 +1768,8 @@ class CrewAIStreamlitUI:
             self._display_run_crew_page()
         elif st.session_state.menu_selection == "Dashboard":
             self._display_dashboard_page()
+        elif st.session_state.menu_selection == "Config":
+            self._display_config_page()
 
     def _display_run_crew_page(self):
         """
@@ -1821,20 +1823,13 @@ class CrewAIStreamlitUI:
         st.markdown("---")
 
         # Create tabs
-        tabs = []
         tab_names = []
 
-        if self.show_agents_tab:
-            tab_names.append("Agents")
-
-        if self.show_tasks_tab:
-            tab_names.append("Tasks")
-
         if self.show_output_tab:
-            tab_names.append("Output")
+            tab_names.append("Log")
 
         if self.show_log_tab:
-            tab_names.append("Logs")
+            tab_names.append("Output")
 
         if self.show_files_tab:
             tab_names.append("Files")
@@ -1850,74 +1845,58 @@ class CrewAIStreamlitUI:
         tab_idx = 0
 
         # Create the tabs content
-        if self.show_agents_tab:
-            with tabs[tab_idx]:
-                self._create_agents_tab(tabs[tab_idx])
-            tab_idx += 1
-
-        if self.show_tasks_tab:
-            with tabs[tab_idx]:
-                self._create_tasks_tab(tabs[tab_idx])
-            tab_idx += 1
-
         if self.show_output_tab:
             with tabs[tab_idx]:
-                self._create_output_tab(tabs[tab_idx])
+                self._create_log_tab(tabs[tab_idx])
             tab_idx += 1
 
         if self.show_log_tab:
             with tabs[tab_idx]:
-                self._create_log_tab(tabs[tab_idx])
+                self._create_output_tab(tabs[tab_idx])
             tab_idx += 1
 
         if self.show_files_tab:
             with tabs[tab_idx]:
                 self._create_files_tab(tabs[tab_idx])
 
-        # # Create the input field and run button at the bottom
-        # st.markdown("---")
-        #
-        # # Create two columns for the input field and button
-        # col1, col2 = st.columns([3, 1])
-        #
-        # # Add the input field to the first column
-        # with col1:
-        #     # Check if we should display the field
-        #     if self.input_field_label:
-        #         user_input = st.text_area(
-        #             label=self.input_field_label,
-        #             value=self.input_field_default,
-        #             placeholder=self.input_field_placeholder,
-        #             help=self.input_field_help,
-        #             key="user_input"
-        #         )
-        #
-        # # Add the run button to the second column
-        # with col2:
-        #     # Create a container to vertically center the button
-        #     container = st.container()
-        #     # Add some vertical space to roughly align with the text area
-        #     st.write("")
-        #     st.write("")
-        #     run_button = st.button("Run", type="primary", use_container_width=True)
-        #
-        #     # Handle the button click
-        #     if run_button:
-        #         if "process_running" in st.session_state and st.session_state.process_running:
-        #             st.warning("A process is already running. Please wait for it to complete.")
-        #         else:
-        #             # Get the user input value
-        #             topic = st.session_state.user_input if "user_input" in st.session_state else ""
-        #
-        #             # Clean the topic if a function is provided
-        #             if self.topic_clean_func and topic:
-        #                 topic = self.topic_clean_func(topic)
-        #
-        #             # Start the process
-        #             self.start_process(topic=topic)
-
         # Check and update the process status
         self._ensure_refresh()
+
+    def _display_config_page(self):
+        """
+        Display the Config page with Agents and Tasks tabs
+        """
+        # Add the header
+        st.title(f"{self.project_name} - Configuration")
+
+        # Initialize the session state
+        self._initialize_session_state()
+
+        # Create tabs for Agents and Tasks
+        tab_names = []
+
+        if self.show_agents_tab:
+            tab_names.append("Agents")
+
+        if self.show_tasks_tab:
+            tab_names.append("Tasks")
+
+        # Only create tabs if we have at least one
+        if len(tab_names) > 0:
+            tabs = st.tabs(tab_names)
+
+            # Initialize tab index counter
+            tab_idx = 0
+
+            # Create the tabs content
+            if self.show_agents_tab:
+                self._create_agents_tab(tabs[tab_idx])
+                tab_idx += 1
+
+            if self.show_tasks_tab:
+                self._create_tasks_tab(tabs[tab_idx])
+        else:
+            st.warning("No configuration tabs are enabled. Set show_agents_tab or show_tasks_tab to True.")
 
     def _display_dashboard_page(self):
         """
