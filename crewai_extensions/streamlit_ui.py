@@ -1752,7 +1752,7 @@ class CrewAIStreamlitUI:
         """, unsafe_allow_html=True)
 
         # Menu items
-        menu_items = ["Run Crew", "Config", "Dashboard"]
+        menu_items = ["Run Crew", "Config", "Ollama Interface", "Dashboard"]
 
         # Generate menu buttons
         for item in menu_items:
@@ -1770,6 +1770,22 @@ class CrewAIStreamlitUI:
             self._display_dashboard_page()
         elif st.session_state.menu_selection == "Config":
             self._display_config_page()
+        elif st.session_state.menu_selection == "Ollama Interface":  # Add this condition
+            self._display_ollama_interface_page()
+
+    def _display_ollama_interface_page(self):
+        """Display the Ollama LLM interface page."""
+        try:
+            # Import the ollama_interface module from the pages directory
+            from .pages import ollama_interface
+
+            # Call the run function
+            ollama_interface.run()
+        except ImportError as e:
+            st.error(f"Error loading Ollama interface: {str(e)}")
+            st.info("Make sure the ollama_interface.py file exists in the pages directory.")
+        except Exception as e:
+            st.error(f"Error displaying Ollama interface: {str(e)}")
 
     def _display_run_crew_page(self):
         """
