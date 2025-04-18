@@ -11,7 +11,7 @@ def run():
     # API endpoint selection
     api_endpoint = st.selectbox(
         "Select API Endpoint",
-        options=["http://localhost:11434/api/show", "http://localhost:11434/api/generate"],
+        options=["http://localhost:11434/api/show", "http://localhost:11434/api/generate", "http://localhost:11434/api/embeddings"],
         index=1
     )
 
@@ -121,7 +121,42 @@ def run():
 
         if reset_generate:
             st.experimental_rerun()
+    elif "api/embeddings" in api_endpoint:
+        with st.form(key="generate_form"):
+            model_name = st.text_input("Model", value="llama3.1")
 
+            # prompt
+            prompt = st.text_area("Prompt", value="Tell me about artificial intelligence.")
+
+            # Advanced options in an expander
+            with st.expander("Advanced Options"):
+                temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=0.7, step=0.1)
+
+            col1, col2 = st.columns([1, 4])
+            with col1:
+                submit_generate = st.form_submit_button("Send Request")
+            with col2:
+                reset_generate = st.form_submit_button("Reset")
+
+        # Build the request body
+        body = {
+            "model": model_name,
+            "prompt": prompt,
+            "options": {
+                "temperature": temperature
+            }
+        }
+
+
+        # Preview the request body
+        with st.expander("Preview Request Body"):
+            st.code(json.dumps(body, indent=2), language="json")
+
+        if submit_generate:
+            display_and_send_request(api_endpoint, headers, body)
+
+        if reset_generate:
+            st.experimental_rerun()
 
 def display_and_send_request(url: str, headers: Dict[str, str], body: Dict[str, Any]):
     """Display and send the request to the Ollama API"""
