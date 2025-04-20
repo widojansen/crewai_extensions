@@ -1745,7 +1745,7 @@ class CrewAIStreamlitUI:
         """, unsafe_allow_html=True)
 
         # Menu items
-        menu_items = ["Run Crew", "Config", "Ollama Interface", "Dashboard"]
+        menu_items = ["Run Crew", "Config", "Ollama Interface", "Ollama Chatbot", "Dashboard"]
 
         # Generate menu buttons
         for item in menu_items:
@@ -1765,6 +1765,8 @@ class CrewAIStreamlitUI:
             self._display_config_page()
         elif st.session_state.menu_selection == "Ollama Interface":  # Add this condition
             self._display_ollama_interface_page()
+        elif st.session_state.menu_selection == "Ollama Chatbot":  # Add this condition
+            self._display_ollama_chatbot_page()
 
     def _display_ollama_interface_page(self):
         """Display the Ollama LLM interface page."""
@@ -1779,6 +1781,20 @@ class CrewAIStreamlitUI:
             st.info("Make sure the ollama_interface.py file exists in the pages directory.")
         except Exception as e:
             st.error(f"Error displaying Ollama interface: {str(e)}")
+
+    def _display_ollama_chatbot_page(self):
+        """Display the Ollama Chatbot page."""
+        try:
+            # Import the ollama_interface module from the pages directory
+            from .pages import chatbot
+
+            # Call the run function
+            chatbot.run()
+        except ImportError as e:
+            st.error(f"Error loading Ollama chatbot: {str(e)}")
+            st.info("Make sure the chatbot.py file exists in the pages directory.")
+        except Exception as e:
+            st.error(f"Error displaying Ollama chatbot: {str(e)}")
 
     def _display_run_crew_page(self):
         """
