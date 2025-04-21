@@ -31,18 +31,32 @@ def log_chat(user, bot):
         f.write(f"[{timestamp}] Bot: {bot}\n\n")
 
 
-def ask_ollama(prompt, context=None):
+def ask_ollama(prompt, system_context="", model_context=None):
+    """
+    Send a prompt to Ollama with optional system context and model context
+    
+    Args:
+        prompt: The user's message
+        system_context: System instructions to prepend to the message
+        model_context: The Ollama context for conversation history
+    """
+    # Prepare the full prompt with system context if provided
+    full_prompt = prompt
+    if system_context:
+        full_prompt = f"### System:\n{system_context}\n\n### User:\n{prompt}"
+    
     payload = {
         'model': MODEL,
-        'prompt': prompt,
+        'prompt': full_prompt,
         'stream': False,
         'options': {
             'temperature': 0.7,
             'stop': ["Observation:"]
         }
     }
-    if context:
-        payload['context'] = context
+    
+    if model_context:
+        payload['context'] = model_context
 
     try:
         response = requests.post(OLLAMA_URL, json=payload)
@@ -56,7 +70,7 @@ def ask_ollama(prompt, context=None):
 
     except Exception as e:
         st.error(f"Error communicating with Ollama: {e}")
-        return "⚠️ There was an error contacting the model.", context
+        return "⚠️ There was an error contacting the model.", model_context
 
 
 def run():
@@ -92,6 +106,10 @@ def run():
             background-color: #ffffff;
             border: 1px solid #e0e0e0;
         }
+        .chat-message.system {
+            background-color: #f0f8ff;
+            border: 1px dashed #b0c4de;
+        }
 
         /* Chat container with reduced height */
         .chat-container {
@@ -119,6 +137,20 @@ def run():
         p {
             margin-bottom: 0.5rem !important;
         }
+        
+        /* Context area styling */
+        .context-area {
+            background-color: #f8f9fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 0.5rem;
+            padding: 0.8rem;
+            margin-bottom: 1rem;
+        }
+        
+        /* Settings expander styling */
+        .settings-expander {
+            margin-bottom: 0.5rem;
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -128,37 +160,73 @@ def run():
                 unsafe_allow_html=True)
 
     # Initialize session state
-    if "context" not in st.session_state:
-        st.session_state.context = load_context()
+    if "model_context" not in st.session_state:
+        st.session_state.model_context = load_context()
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
         
+    # Add system context to session state if not present
+    if "system_context" not in st.session_state:
+        st.session_state.system_context = "You are a helpful AI assistant. Be concise and clear in your answers."
+        
     # Flag to track if we should process a new message
     if "should_process" not in st.session_state:
         st.session_state.should_process = False
-        
-    # Flag to track if input needs to be cleared
-    if "clear_input" not in st.session_state:
-        st.session_state.clear_input = False
+    
+    # Flag to track if we should update system context
+    if "update_context" not in st.session_state:
+        st.session_state.update_context = False
 
-    # Layout structure with reduced spacing
-    chat_area, input_area = st.container(), st.container()
-
+    # Layout structure with reduced spacing - add a context area at the top
+    context_area, chat_area, input_area = st.container(), st.container(), st.container()
+    
     # Function to handle message submission
     def submit_message():
         if st.session_state.user_input.strip():  # Only process non-empty messages
             # Store current message for processing
             st.session_state.current_message = st.session_state.user_input
             st.session_state.should_process = True
-            # Set clear flag to reset input after processing
-            st.session_state.clear_input = True
+    
+    # Function to update system context
+    def update_system_context():
+        st.session_state.system_context = st.session_state.context_input
+        st.session_state.update_context = True
             
     # Function to handle chat clearing
     def clear_chat():
         st.session_state.messages = []
         st.session_state.current_message = ""
         st.session_state.should_process = False
+        # Reset the model context but not the system context
+        st.session_state.model_context = None
+        save_context(None)
+    
+    # Context area for setting system instructions
+    with context_area:
+        with st.expander("📝 System Context (instructions for the AI)", expanded=False):
+            st.text_area(
+                "Set context or instructions for the AI that apply to all messages:",
+                value=st.session_state.system_context,
+                height=100,
+                key="context_input",
+                help="These instructions will guide how the AI responds to your messages."
+            )
+            
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                if st.button("Update Context", use_container_width=True):
+                    update_system_context()
+            
+            # Show a preview of the current context
+            if st.session_state.system_context:
+                st.caption("Current system context:")
+                st.markdown(f"""
+                <div class="chat-message system">
+                    <div class="message-header">🔧 System</div>
+                    <div>{st.session_state.system_context}</div>
+                </div>
+                """, unsafe_allow_html=True)
     
     # Process the message first if needed
     if st.session_state.should_process:
@@ -168,10 +236,14 @@ def run():
         # Add user message to history
         st.session_state.messages.append({"role": "You", "content": user_input})
         
-        # Get bot response
+        # Get bot response, using the system context
         with st.spinner("Thinking..."):
-            response, new_context = ask_ollama(user_input, st.session_state.context)
-            st.session_state.context = new_context
+            response, new_context = ask_ollama(
+                prompt=user_input,
+                system_context=st.session_state.system_context,
+                model_context=st.session_state.model_context
+            )
+            st.session_state.model_context = new_context
             save_context(new_context)
             log_chat(user_input, response)
         
@@ -183,6 +255,11 @@ def run():
         st.session_state.current_message = ""
         
         # Ensure we rerun once to reset the input field
+        st.rerun()
+    
+    # If context was updated, rerun to reflect changes
+    if st.session_state.update_context:
+        st.session_state.update_context = False
         st.rerun()
     
     # Input area with clear input logic
