@@ -7,12 +7,21 @@ from datetime import datetime
 # Constants
 OLLAMA_URL = 'http://localhost:11434/api/generate'
 MODEL = 'llama3.1'
-LOG_FILE = 'chat_log.txt'
-CONTEXT_FILE = 'context.json'
+LOGS_FOLDER = 'chat_logs'
+LOG_FILE = os.path.join(LOGS_FOLDER, 'chat_log.txt')
+CONTEXT_FILE = os.path.join(LOGS_FOLDER, 'context.json')
+REQUESTS_RESPONSES_LOG = os.path.join(LOGS_FOLDER, 'chat_requests_responses.log')
 
 
 # Utils
+def ensure_logs_folder_exists():
+    """Ensure the chat logs folder exists, creating it if necessary."""
+    if not os.path.exists(LOGS_FOLDER):
+        os.makedirs(LOGS_FOLDER)
+
+
 def load_context():
+    ensure_logs_folder_exists()
     if os.path.exists(CONTEXT_FILE):
         with open(CONTEXT_FILE, 'r') as f:
             return json.load(f)
@@ -20,15 +29,25 @@ def load_context():
 
 
 def save_context(context):
+    ensure_logs_folder_exists()
     with open(CONTEXT_FILE, 'w') as f:
         json.dump(context, f)
 
 
 def log_chat(user, bot):
+    ensure_logs_folder_exists()
     with open(LOG_FILE, 'a') as f:
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         f.write(f"[{timestamp}] You: {user}\n")
         f.write(f"[{timestamp}] Bot: {bot}\n\n")
+
+
+def log_request_response(content):
+    """Log detailed request/response information to a dedicated log file."""
+    ensure_logs_folder_exists()
+    with open(REQUESTS_RESPONSES_LOG, 'a') as f:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        f.write(f"[{timestamp}] {content}\n")
 
 
 def ask_ollama(prompt, system_context="", model_context=None):
@@ -50,18 +69,36 @@ def ask_ollama(prompt, system_context="", model_context=None):
         'prompt': full_prompt,
         'stream': False,
         'options': {
-            'temperature': 0.7,
-            'stop': ["Observation:"]
+            'temperature': st.session_state.temperature,
+            'stop': st.session_state.stop_sequences
         }
     }
     
     if model_context:
         payload['context'] = model_context
 
+    # Log the request payload to the log file
+    log_request_response(
+        "================================================================================\n"
+        "REQUEST PAYLOAD:\n"
+        "================================================================================\n"
+        f"{json.dumps(payload, indent=2)}\n"
+        "================================================================================\n"
+    )
+
     try:
         response = requests.post(OLLAMA_URL, json=payload)
         response.raise_for_status()  # Catch HTTP errors
         data = response.json()
+
+        # Log the complete response to the log file
+        log_request_response(
+            "================================================================================\n"
+            "COMPLETE RESPONSE:\n"
+            "================================================================================\n"
+            f"{json.dumps(data, indent=2)}\n"
+            "================================================================================\n"
+        )
 
         if 'response' not in data:
             raise ValueError(f"Ollama returned unexpected response: {data}")
@@ -70,6 +107,14 @@ def ask_ollama(prompt, system_context="", model_context=None):
 
     except Exception as e:
         st.error(f"Error communicating with Ollama: {e}")
+        # Log the error to the log file as well
+        log_request_response(
+            "================================================================================\n"
+            "ERROR COMMUNICATING WITH OLLAMA:\n"
+            "================================================================================\n"
+            f"{str(e)}\n"
+            "================================================================================\n"
+        )
         return "⚠️ There was an error contacting the model.", model_context
 
 
@@ -151,8 +196,21 @@ def run():
         .settings-expander {
             margin-bottom: 0.5rem;
         }
+        
+       /* Temperature box styling */
+       .temperature-box {
+           background-color: #f8f9fa;
+           border: 1px solid #e0e0e0;
+           border-radius: 0.5rem;
+           padding: 0.8rem;
+           margin-top: 0.5rem;
+           margin-bottom: 0.5rem;
+       }
     </style>
     """, unsafe_allow_html=True)
+
+    # Ensure the logs folder exists when the app starts
+    ensure_logs_folder_exists()
 
     # Compact header
     st.markdown("<h1 style='font-size:1.5rem;margin-bottom:0.2rem;'>💬 Chatbot (Ollama)</h1>", unsafe_allow_html=True)
@@ -166,9 +224,17 @@ def run():
     if "messages" not in st.session_state:
         st.session_state.messages = []
         
-    # Add system context to session state if not present
+    # Add system context to the session state if not present
     if "system_context" not in st.session_state:
         st.session_state.system_context = "You are a helpful AI assistant. Be concise and clear in your answers."
+        
+    # Initialize temperature in the session state if not present
+    if "temperature" not in st.session_state:
+        st.session_state.temperature = 0.7
+        
+    # Initialize stop sequences in the session state if not present
+    if "stop_sequences" not in st.session_state:
+        st.session_state.stop_sequences = ["Observation:"]
         
     # Initialize user_input in session_state if not present
     if "user_input" not in st.session_state:
@@ -181,10 +247,11 @@ def run():
     # Flag to track if we should update system context
     if "update_context" not in st.session_state:
         st.session_state.update_context = False
+        
+    # Flag to track if we should update stop sequences
+    if "update_stop_sequences" not in st.session_state:
+        st.session_state.update_stop_sequences = False
 
-    # Layout structure with reduced spacing - add a context area at the top
-    context_area, chat_area, input_area = st.container(), st.container(), st.container()
-    
     # Function to handle message submission - modified for single-click
     def submit_message():
         # Get the input directly from the widget key we're using
@@ -194,10 +261,10 @@ def run():
             # Store message and process immediately
             st.session_state.current_message = user_input
             
-            # Add user message to history
+            # Add a user message to the history
             st.session_state.messages.append({"role": "You", "content": user_input})
             
-            # Get bot response, using the system context
+            # Get the bot response using the system context
             with st.spinner("Thinking..."):
                 response, new_context = ask_ollama(
                     prompt=user_input,
@@ -221,7 +288,19 @@ def run():
     def update_system_context():
         st.session_state.system_context = st.session_state.context_input
         st.session_state.update_context = True
-            
+    
+    # Function to update stop sequences
+    def update_stop_sequences():
+        stop_text = st.session_state.stop_sequences_input.strip()
+        if stop_text:
+            # Split by line and remove any empty lines
+            sequences = [seq.strip() for seq in stop_text.split('\n') if seq.strip()]
+            st.session_state.stop_sequences = sequences
+        else:
+            # If the input is empty, set an empty list
+            st.session_state.stop_sequences = []
+        st.session_state.update_stop_sequences = True
+        
     # Function to handle chat clearing
     def clear_chat():
         st.session_state.messages = []
@@ -231,8 +310,9 @@ def run():
         save_context(None)
         st.rerun()
     
-    # Context area for setting system instructions
-    with context_area:
+    # Context area for setting system instructions and temperature
+    with st.container():
+        # First expander: System Context
         with st.expander("📝 System Context (instructions for the AI)", expanded=False):
             st.text_area(
                 "Set context or instructions for the AI that apply to all messages:",
@@ -256,14 +336,88 @@ def run():
                     <div>{st.session_state.system_context}</div>
                 </div>
                 """, unsafe_allow_html=True)
+                
+        # Second expander: Temperature Control
+        with st.expander("🌡️ Temperature Control", expanded=False):
+            st.slider(
+                "Adjust randomness of responses:",
+                min_value=0.0,
+                max_value=2.0,
+                value=st.session_state.temperature,
+                step=0.1,
+                format="%.1f",
+                key="temperature",
+                help="Higher values (towards 2.0) make responses more random and creative. Lower values (towards 0.0) make responses more focused and deterministic."
+            )
+            
+        # Third expander: Stop Sequences
+        with st.expander("🛑 Stop Sequences", expanded=False):
+            # Create the text area with current stop sequences as initial value
+            current_stop_sequences = "\n".join(st.session_state.stop_sequences)
+            st.text_area(
+                "Set stop sequences (one per line):",
+                value=current_stop_sequences,
+                height=80,
+                key="stop_sequences_input",
+                help="The model will stop generating text when it encounters any of these sequences."
+            )
+            
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                if st.button("Update Stop Sequences", use_container_width=True):
+                    update_stop_sequences()
+            
+            # Show a preview of the current stop sequences
+            if st.session_state.stop_sequences:
+                st.caption("Current stop sequences:")
+                for i, sequence in enumerate(st.session_state.stop_sequences):
+                    st.code(f"{i+1}. \"{sequence}\"")
     
     # If context was updated, rerun to reflect changes
     if st.session_state.update_context:
         st.session_state.update_context = False
         st.rerun()
+        
+    # If stop sequences were updated, rerun to reflect changes
+    if st.session_state.update_stop_sequences:
+        st.session_state.update_stop_sequences = False
+        st.rerun()
+    
+    # Chat display area
+    chat_container = st.container()
+    with chat_container:
+        st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+
+        if not st.session_state.messages:
+            st.markdown(
+                "<div style='text-align:center;color:#808080;padding:10px;'>Start a conversation by typing a message below.</div>",
+                unsafe_allow_html=True)
+
+        for message in st.session_state.messages:
+            role = message["role"]
+            content = message["content"]
+
+            # Apply different styling based on the role
+            if role == "You":
+                st.markdown(f'''
+                <div class="chat-message user">
+                    <div class="message-header">👤 {role}</div>
+                    <div>{content}</div>
+                </div>
+                ''', unsafe_allow_html=True)
+            else:
+                st.markdown(f'''
+                <div class="chat-message bot">
+                    <div class="message-header">🤖 {role}</div>
+                    <div>{content}</div>
+                </div>
+                ''', unsafe_allow_html=True)
+
+        st.markdown('</div>', unsafe_allow_html=True)
     
     # Input area with improved input handling
-    with input_area:
+    input_container = st.container()
+    with input_container:
         # Setup counter for dynamic key generation if it doesn't exist
         if "input_counter" not in st.session_state:
             st.session_state.input_counter = 0
@@ -296,34 +450,3 @@ def run():
             
         if clear_button:
             clear_chat()
-    
-    # Chat display area
-    with chat_area:
-        st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-
-        if not st.session_state.messages:
-            st.markdown(
-                "<div style='text-align:center;color:#808080;padding:10px;'>Start a conversation by typing a message below.</div>",
-                unsafe_allow_html=True)
-
-        for message in st.session_state.messages:
-            role = message["role"]
-            content = message["content"]
-
-            # Apply different styling based on the role
-            if role == "You":
-                st.markdown(f'''
-                <div class="chat-message user">
-                    <div class="message-header">👤 {role}</div>
-                    <div>{content}</div>
-                </div>
-                ''', unsafe_allow_html=True)
-            else:
-                st.markdown(f'''
-                <div class="chat-message bot">
-                    <div class="message-header">🤖 {role}</div>
-                    <div>{content}</div>
-                </div>
-                ''', unsafe_allow_html=True)
-
-        st.markdown('</div>', unsafe_allow_html=True)
