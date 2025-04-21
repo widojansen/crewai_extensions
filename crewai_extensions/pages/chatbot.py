@@ -170,10 +170,14 @@ def run():
     if "system_context" not in st.session_state:
         st.session_state.system_context = "You are a helpful AI assistant. Be concise and clear in your answers."
         
-    # Flag to track if we should process a new message
-    if "should_process" not in st.session_state:
-        st.session_state.should_process = False
+    # Initialize user_input in session_state if not present
+    if "user_input" not in st.session_state:
+        st.session_state.user_input = ""
     
+    # Store the current message to process
+    if "current_message" not in st.session_state:
+        st.session_state.current_message = ""
+        
     # Flag to track if we should update system context
     if "update_context" not in st.session_state:
         st.session_state.update_context = False
@@ -181,12 +185,37 @@ def run():
     # Layout structure with reduced spacing - add a context area at the top
     context_area, chat_area, input_area = st.container(), st.container(), st.container()
     
-    # Function to handle message submission
+    # Function to handle message submission - modified for single-click
     def submit_message():
-        if st.session_state.user_input.strip():  # Only process non-empty messages
-            # Store current message for processing
-            st.session_state.current_message = st.session_state.user_input
-            st.session_state.should_process = True
+        # Get the input directly from the widget key we're using
+        user_input = st.session_state[input_key].strip()
+        
+        if user_input:  # Only process non-empty messages
+            # Store message and process immediately
+            st.session_state.current_message = user_input
+            
+            # Add user message to history
+            st.session_state.messages.append({"role": "You", "content": user_input})
+            
+            # Get bot response, using the system context
+            with st.spinner("Thinking..."):
+                response, new_context = ask_ollama(
+                    prompt=user_input,
+                    system_context=st.session_state.system_context,
+                    model_context=st.session_state.model_context
+                )
+                st.session_state.model_context = new_context
+                save_context(new_context)
+                log_chat(user_input, response)
+            
+            # Add bot response to history
+            st.session_state.messages.append({"role": "Bot", "content": response.strip()})
+            
+            # Clear the input field by incrementing the key counter
+            st.session_state.input_counter += 1
+            
+            # Trigger UI refresh
+            st.rerun()
     
     # Function to update system context
     def update_system_context():
@@ -197,10 +226,10 @@ def run():
     def clear_chat():
         st.session_state.messages = []
         st.session_state.current_message = ""
-        st.session_state.should_process = False
         # Reset the model context but not the system context
         st.session_state.model_context = None
         save_context(None)
+        st.rerun()
     
     # Context area for setting system instructions
     with context_area:
@@ -228,67 +257,45 @@ def run():
                 </div>
                 """, unsafe_allow_html=True)
     
-    # Process the message first if needed
-    if st.session_state.should_process:
-        # Get the content of the message to process
-        user_input = st.session_state.current_message
-        
-        # Add user message to history
-        st.session_state.messages.append({"role": "You", "content": user_input})
-        
-        # Get bot response, using the system context
-        with st.spinner("Thinking..."):
-            response, new_context = ask_ollama(
-                prompt=user_input,
-                system_context=st.session_state.system_context,
-                model_context=st.session_state.model_context
-            )
-            st.session_state.model_context = new_context
-            save_context(new_context)
-            log_chat(user_input, response)
-        
-        # Add bot response to history
-        st.session_state.messages.append({"role": "Bot", "content": response.strip()})
-        
-        # Reset processing flags
-        st.session_state.should_process = False
-        st.session_state.current_message = ""
-        
-        # Ensure we rerun once to reset the input field
-        st.rerun()
-    
     # If context was updated, rerun to reflect changes
     if st.session_state.update_context:
         st.session_state.update_context = False
         st.rerun()
     
-    # Input area with clear input logic
+    # Input area with improved input handling
     with input_area:
-        col1, col2, col3 = st.columns([6, 1, 1])
-        
-        # Use a key that changes when we want to clear the input
-        input_key = f"user_input_{len(st.session_state.messages)}"
-        
-        with col1:
-            user_input = st.text_input(
-                "", 
-                placeholder="Ask anything...",
-                key=input_key,
-                label_visibility="collapsed"
-            )
+        # Setup counter for dynamic key generation if it doesn't exist
+        if "input_counter" not in st.session_state:
+            st.session_state.input_counter = 0
             
-            # Store input value in session state
-            if user_input:
-                st.session_state.user_input = user_input
-
-        with col2:
-            if st.button("Send", use_container_width=True):
-                submit_message()
-
-        with col3:
-            if st.button("Clear", use_container_width=True):
-                clear_chat()
-                st.rerun()
+        # Create a dynamic key that includes the counter
+        input_key = f"user_input_{st.session_state.input_counter}"
+        
+        # Create the input form with auto-submission
+        with st.form(key="message_form", clear_on_submit=True):
+            col1, col2, col3 = st.columns([6, 1, 1])
+            
+            with col1:
+                st.text_input(
+                    "", 
+                    placeholder="Ask anything...",
+                    key=input_key,
+                    label_visibility="collapsed"
+                )
+                
+            # Add submit buttons to the form
+            with col2:
+                submit_button = st.form_submit_button("Send", use_container_width=True)
+                
+            with col3:
+                clear_button = st.form_submit_button("Clear", use_container_width=True)
+        
+        # Process form submissions
+        if submit_button:
+            submit_message()
+            
+        if clear_button:
+            clear_chat()
     
     # Chat display area
     with chat_area:
