@@ -381,6 +381,9 @@ def create_tasks_tab(tab, app_instance):
                 You can add multiple tasks with different configurations.
                 """)
     
+    # Get available agent names from the agents configuration
+    agent_options = [""] + list(st.session_state.get('agents_data', {}).keys())
+    
     # Add new task section
     with tab.expander("Add New Task", expanded=False):
         col1, col2 = st.columns(2)
@@ -406,6 +409,9 @@ def create_tasks_tab(tab, app_instance):
     # Display and edit each task
     if st.session_state.tasks_data:
         tab.subheader("Edit Tasks")
+        
+        # Get list of all task names for context selection
+        task_names = list(st.session_state.tasks_data.keys())
         
         tasks_to_delete = []
         
@@ -434,9 +440,17 @@ def create_tasks_tab(tab, app_instance):
                     key=f"{task_name}_expected_output"
                 )
                 
-                task_config["agent"] = st.text_input(
+                # Use a dropdown selector for agents instead of text input
+                current_agent = task_config.get("agent", "")
+                
+                # Display warning if the current agent doesn't exist in agent options
+                if current_agent and current_agent not in agent_options:
+                    st.warning(f"Agent '{current_agent}' is not defined in the Agents configuration.")
+                
+                task_config["agent"] = st.selectbox(
                     "Agent",
-                    value=task_config.get("agent", ""),
+                    options=agent_options,
+                    index=agent_options.index(current_agent) if current_agent in agent_options else 0,
                     key=f"{task_name}_agent"
                 )
                 
@@ -457,21 +471,19 @@ def create_tasks_tab(tab, app_instance):
                         key=f"{task_name}_human_input"
                     )
                 
-                # Context field - convert to string if it's a list
+                # Context field - use multiselect for task dependencies
                 context_value = task_config.get("context", [])
-                context_str = ", ".join(context_value) if isinstance(context_value, list) else str(context_value)
                 
-                context_input = st.text_input(
-                    "Context (comma-separated task names)",
-                    value=context_str,
-                    key=f"{task_name}_context_input"
+                # Filter out the current task from the context options to prevent self-reference
+                context_options = [t for t in task_names if t != task_name]
+                
+                # Build multiselect for context selection
+                task_config["context"] = st.multiselect(
+                    "Context (tasks this task depends on)",
+                    options=context_options,
+                    default=[ctx for ctx in context_value if ctx in context_options],
+                    key=f"{task_name}_context_select"
                 )
-                
-                # Convert the string back to a list
-                if context_input.strip():
-                    task_config["context"] = [item.strip() for item in context_input.split(",")]
-                else:
-                    task_config["context"] = []
                 
                 # Add any custom fields that might exist in the configuration
                 custom_fields = [k for k in task_config.keys() if k not in ["description", "expected_output", "agent", "async_execution", "human_input", "context"]]
@@ -502,6 +514,12 @@ def create_tasks_tab(tab, app_instance):
         for task_name in tasks_to_delete:
             if task_name in st.session_state.tasks_data:
                 del st.session_state.tasks_data[task_name]
+                
+                # Also remove this task from any other task's context
+                for other_task, config in st.session_state.tasks_data.items():
+                    if "context" in config and task_name in config["context"]:
+                        config["context"].remove(task_name)
+                
                 st.rerun()
     else:
         tab.info("No tasks configured. Add your first task above.")
