@@ -2,11 +2,11 @@ from setuptools import setup, find_packages
 
 setup(
     name="crewai_extensions",
-    version="0.6.3.3",
+    version="0.6.3.4",
     packages=find_packages(),
     install_requires=[
         "crewai",  # Base package dependency
-        "litellm",
+        "litellm==1.64.1",
         "pydantic",
         "python-dotenv",
         "langchain",

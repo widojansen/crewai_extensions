@@ -226,33 +226,7 @@ def create_agents_tab(tab, app_instance):
 
     with tab.expander("Preview YAML", expanded=False):
         # Create a custom formatted YAML string that matches the required format
-        formatted_yaml = ""
-
-        for entity_name, entity_config in st.session_state.agents_data.items():
-            formatted_yaml += f"{entity_name}:\n"
-
-            for field_name, field_value in entity_config.items():
-                # Handle different types of values
-                if isinstance(field_value, bool):
-                    formatted_yaml += f"  {field_name}: {str(field_value).lower()}\n"
-                elif isinstance(field_value, list):
-                    if not field_value:
-                        formatted_yaml += f"  {field_name}: []\n"
-                    else:
-                        formatted_yaml += f"  {field_name}:\n"
-                        for item in field_value:
-                            formatted_yaml += f"    - {item}\n"
-                elif isinstance(field_value, str):
-                    field_names = ["agent", "async_execution", "human_input", "verbose", "allow_delegation"]
-                    if field_name in field_names:
-                        formatted_yaml += f"  {field_name}: {field_value.rstrip()}\n"
-                    else:
-                        formatted_yaml += f"  {field_name}: >\n    {field_value.rstrip()}\n"
-                else:
-                    formatted_yaml += f"  {field_name}: >\n    {field_value}\n"
-
-            formatted_yaml += "\n"
-        print(f"formatted_yaml preview: {formatted_yaml}")
+        formatted_yaml = format_yaml(st.session_state.agents_data.items())
         st.code(formatted_yaml, language="yaml")
 
     # Buttons for actions
@@ -293,7 +267,6 @@ def create_agents_tab(tab, app_instance):
             try:
                 # Convert to YAML for saving
                 agents_yaml = yaml.dump(st.session_state.agents_data, default_flow_style=False, sort_keys=False)
-                print(f"agents_yaml save: {agents_yaml}")
                 # Try to save the file
                 success, error = save_yaml_file(app_instance.agents_config_path, agents_yaml, app_instance)
                 if success:
@@ -551,33 +524,7 @@ def create_tasks_tab(tab, app_instance):
     # Preview YAML section for tasks tab
     with tab.expander("Preview YAML", expanded=False):
         # Create a custom formatted YAML string that matches the required format
-        formatted_yaml = ""
-        
-        for entity_name, entity_config in st.session_state.tasks_data.items():
-            formatted_yaml += f"{entity_name}:\n"
-            
-            for field_name, field_value in entity_config.items():
-                # Handle different types of values
-                if isinstance(field_value, bool):
-                    formatted_yaml += f"  {field_name}: {str(field_value).lower()}\n"
-                elif isinstance(field_value, list):
-                    if not field_value:
-                        formatted_yaml += f"  {field_name}: []\n"
-                    else:
-                        formatted_yaml += f"  {field_name}:\n"
-                        for item in field_value:
-                            formatted_yaml += f"    - {item}\n"
-                elif isinstance(field_value, str):
-                    field_names = ["agent", "async_execution", "human_input", "verbose", "allow_delegation"]
-                    if field_name in field_names:
-                        formatted_yaml += f"  {field_name}: {field_value.rstrip()}\n"
-                    else:
-                        formatted_yaml += f"  {field_name}: >\n    {field_value.rstrip()}\n"
-                else:
-                    formatted_yaml += f"  {field_name}: >\n    {field_value}\n"
-            
-            formatted_yaml += "\n"
-        print(f"formatted_yaml preview: {formatted_yaml}")
+        formatted_yaml = format_yaml(st.session_state.tasks_data.items())
         st.code(formatted_yaml, language="yaml")
     
     # Buttons for actions
@@ -589,7 +536,6 @@ def create_tasks_tab(tab, app_instance):
             try:
                 # Convert to YAML for validation
                 tasks_yaml = yaml.dump(st.session_state.tasks_data, default_flow_style=False, sort_keys=False)
-                print(f"tasks_yaml validate: {tasks_yaml}")
                 # Validate it (just checks for valid YAML)
                 is_valid, error = validate_yaml(tasks_yaml)
                 
@@ -618,7 +564,6 @@ def create_tasks_tab(tab, app_instance):
             try:
                 # Convert to YAML for saving
                 tasks_yaml = yaml.dump(st.session_state.tasks_data, default_flow_style=False, sort_keys=False)
-                print(f"tasks_yaml save: {tasks_yaml}")
                 # Try to save the file
                 success, error = save_yaml_file(app_instance.tasks_config_path, tasks_yaml, app_instance)
                 if success:
@@ -695,33 +640,7 @@ def save_yaml_file(file_path, content, app_instance):
                 print(f"Successfully parsed YAML string")
 
                 # Create a manually formatted YAML with our desired format
-                formatted_yaml = ""
-                
-                for entity_name, entity_config in yaml_content.items():
-                    formatted_yaml += f"{entity_name}:\n"
-                    
-                    for field_name, field_value in entity_config.items():
-                        # Handle different types of values
-                        if isinstance(field_value, bool):
-                            formatted_yaml += f"  {field_name}: {str(field_value).lower()}\n"
-                        elif isinstance(field_value, list):
-                            if not field_value:
-                                formatted_yaml += f"  {field_name}: []\n"
-                            else:
-                                formatted_yaml += f"  {field_name}:\n"
-                                for item in field_value:
-                                    formatted_yaml += f"    - {item}\n"
-                        elif isinstance(field_value, str):
-                            field_names = ["agent", "async_execution", "human_input", "verbose", "allow_delegation"]
-                            if field_name in field_names:
-                                formatted_yaml += f"  {field_name}: {field_value}\n"
-                            else:
-                                formatted_yaml += f"  {field_name}: >\n    {field_value.rstrip()}\n"
-                        else:
-                            formatted_yaml += f"  {field_name}: >\n    {field_value}\n"
-                    
-                    formatted_yaml += "\n"
-                    print(f"formatted_yaml save: {formatted_yaml}")
+                formatted_yaml = format_yaml(yaml_content.items())
                 # Write the manually formatted YAML
                 with open(absolute_path, 'w') as file:
                     file.write(formatted_yaml)
@@ -734,34 +653,7 @@ def save_yaml_file(file_path, content, app_instance):
                 return False, error_msg
         else:
             # Create a manually formatted YAML file with the exact style needed
-            formatted_yaml = ""
-            
-            for entity_name, entity_config in content.items():
-                formatted_yaml += f"{entity_name}:\n"
-                
-                for field_name, field_value in entity_config.items():
-                    # Handle different types of values
-                    if isinstance(field_value, bool):
-                        formatted_yaml += f"  {field_name}: {str(field_value).lower()}\n"
-                    elif isinstance(field_value, list):
-                        if not field_value:
-                            formatted_yaml += f"  {field_name}: []\n"
-                        else:
-                            formatted_yaml += f"  {field_name}:\n"
-                            for item in field_value:
-                                formatted_yaml += f"    - {item}\n"
-                    elif isinstance(field_value, str):
-                        field_names = ["agent", "async_execution", "human_input", "verbose", "allow_delegation"]
-                        if field_name in field_names:
-                            formatted_yaml += f"  {field_name}: {field_value}\n"
-                        else:
-                            formatted_yaml += f"  {field_name}: >\n    {field_value.rstrip()}\n"
-                    else:
-                        formatted_yaml += f"  {field_name}: >\n    {field_value}\n"
-                
-                # Add a blank line between entities
-                formatted_yaml += "\n"
-                print(f"formatted_yaml save manually: {formatted_yaml}")
+            formatted_yaml = format_yaml(content.items())
             # Write the manually formatted YAML
             with open(absolute_path, 'w') as file:
                 file.write(formatted_yaml)
@@ -803,4 +695,33 @@ def load_yaml_to_string(file_path):
     except Exception as e:
         return "", f"Error loading YAML file: {str(e)}"
 
+def format_yaml(items):
+    formatted_yaml = ""
+
+    for entity_name, entity_config in items:
+        formatted_yaml += f"{entity_name}:\n"
+
+        for field_name, field_value in entity_config.items():
+            # Handle different types of values
+            if isinstance(field_value, bool):
+                formatted_yaml += f"  {field_name}: {str(field_value).lower()}\n"
+            elif isinstance(field_value, list):
+                if not field_value:
+                    formatted_yaml += f"  {field_name}: []\n"
+                else:
+                    formatted_yaml += f"  {field_name}:\n"
+                    for item in field_value:
+                        formatted_yaml += f"    - {item}\n"
+            elif isinstance(field_value, str):
+                field_names = ["agent", "async_execution", "human_input", "verbose", "allow_delegation"]
+                if field_name in field_names:
+                    formatted_yaml += f"  {field_name}: {field_value.rstrip()}\n"
+                else:
+                    formatted_yaml += f"  {field_name}: >\n    {field_value.rstrip()}\n"
+            else:
+                formatted_yaml += f"  {field_name}: >\n    {field_value}\n"
+
+        formatted_yaml += "\n"
+
+    return formatted_yaml
 # Add any other helper methods needed
