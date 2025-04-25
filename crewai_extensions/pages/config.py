@@ -655,9 +655,20 @@ def save_yaml_file(file_path, content, app_instance):
                 print(error_msg)
                 return False, error_msg
         else:
-            # If content is already a Python object, dump it directly
+            # Create a custom yaml representer to format multiline strings properly
+            class MultilineFormatter(yaml.SafeDumper):
+                pass
+            
+            def represent_str(self, data):
+                if '\n' in data:
+                    return self.represent_scalar('tag:yaml.org,2002:str', data, style='>')
+                return self.represent_scalar('tag:yaml.org,2002:str', data)
+            
+            MultilineFormatter.add_representer(str, represent_str)
+            
+            # If content is already a Python object, dump it with the custom formatter
             with open(absolute_path, 'w') as file:
-                yaml.dump(content, file, default_flow_style=False, sort_keys=False)
+                yaml.dump(content, file, default_flow_style=False, sort_keys=False, Dumper=MultilineFormatter)
                 print(f"File saved: {absolute_path}")
 
             return True, None
