@@ -66,7 +66,7 @@ def run():
             display_and_send_request(api_endpoint, headers, body)
 
         if reset_show:
-            st.experimental_rerun()
+            st.rerun()
 
     elif "api/generate" in api_endpoint:
         # More complex form for /api/generate endpoint
@@ -120,7 +120,7 @@ def run():
             display_and_send_request(api_endpoint, headers, body)
 
         if reset_generate:
-            st.experimental_rerun()
+            st.rerun()
     elif "api/embeddings" in api_endpoint:
         with st.form(key="generate_form"):
             model_name = st.text_input("Model", value="llama3.1")
@@ -156,7 +156,7 @@ def run():
             display_and_send_request(api_endpoint, headers, body)
 
         if reset_generate:
-            st.experimental_rerun()
+            st.rerun()
 
 def display_and_send_request(url: str, headers: Dict[str, str], body: Dict[str, Any]):
     """Display and send the request to the Ollama API"""
